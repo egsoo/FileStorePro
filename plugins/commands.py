@@ -5074,36 +5074,43 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
             return
         
         elif query.data.startswith("file_share_"):
-            # Refresh buttons with copy link - no text change
+            # Show share options with buttons and caption
             try:
                 file_idx = int(query.data.split("_")[-1])
-                username = (await client.get_me()).username
-                string = f'file_{file_idx}'
-                encoded = base64.urlsafe_b64encode(string.encode("ascii")).decode().strip("=")
-                link = f"https://t.me/{username}?start={encoded}"
+                user = await db.col.find_one({'id': int(query.from_user.id)})
+                stored_files = user.get('stored_files', []) if user else []
                 
-                # Update buttons only - keep the message text same
-                api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageReplyMarkup"
-                payload = {
-                    "chat_id": query.from_user.id,
-                    "message_id": query.message.id,
-                    "reply_markup": {
-                        "inline_keyboard": [
-                            [{"text": "Copy folder link", "copy_text": {"text": link}}, {"text": "📥 Open Link", "url": link}],
-                            [{"text": "⋞ ʙᴀᴄᴋ", "callback_data": f"share_back_{file_idx}"}]
-                        ]
+                if 0 <= file_idx < len(stored_files):
+                    file_name = stored_files[file_idx].get('file_name', 'File')
+                    username = (await client.get_me()).username
+                    string = f'file_{file_idx}'
+                    encoded = base64.urlsafe_b64encode(string.encode("ascii")).decode().strip("=")
+                    link = f"https://t.me/{username}?start={encoded}"
+                    
+                    # Change caption/text and buttons
+                    api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+                    payload = {
+                        "chat_id": query.from_user.id,
+                        "message_id": query.message.id,
+                        "text": f"<b>📤 Share File</b>\n\n<b>📄 {file_name}</b>\n\nShare this file with others using the link below:",
+                        "parse_mode": "HTML",
+                        "reply_markup": {
+                            "inline_keyboard": [
+                                [{"text": "Copy file link", "copy_text": {"text": link}}, {"text": "📥 Open Link", "url": link}],
+                                [{"text": "⋞ ʙᴀᴄᴋ", "callback_data": f"share_back_{file_idx}"}]
+                            ]
+                        }
                     }
-                }
-                
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(api_url, json=payload) as resp:
-                        result = await resp.json()
-                        if not result.get("ok"):
-                            logger.error(f"Share menu error: {result.get('description')}")
-                            await query.answer("Error updating buttons", show_alert=True)
-                            return
-                
-                await query.answer()
+                    
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(api_url, json=payload) as resp:
+                            result = await resp.json()
+                            if not result.get("ok"):
+                                logger.error(f"Share menu error: {result.get('description')}")
+                                await query.answer("Error updating share section", show_alert=True)
+                                return
+                    
+                    await query.answer()
             except Exception as e:
                 logger.error(f"Share menu error: {e}")
                 await query.answer("Error", show_alert=True)
