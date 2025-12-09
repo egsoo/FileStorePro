@@ -1989,7 +1989,7 @@ async def handle_user_input(client, message):
 async def callback(client, query):
     try:
         # Answer callback immediately for faster response (unless specific handlers need custom answers)
-        if not query.data.startswith(("stop_batch_", "toggle_clone", "remove_dest_", "toggle_dest_enable_", "sel_folder_", "confirm_del_", "select_topic_", "del_replace_", "del_remove_", "mode_", "file_share_", "change_file_folder_", "view_folder_password_", "confirm_remove_password_", "remove_folder_password_")):
+        if not query.data.startswith(("stop_batch_", "toggle_clone", "remove_dest_", "toggle_dest_enable_", "sel_folder_", "confirm_del_", "select_topic_", "del_replace_", "del_remove_", "mode_", "file_share_", "change_file_folder_", "view_folder_password_", "confirm_remove_password_", "remove_folder_password_", "confirm_change_link_", "cancel_change_link_")):
             await query.answer()
         
         if query.data.startswith("stop_batch_"):
@@ -4486,6 +4486,7 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                      InlineKeyboardButton('❌ Cancel', callback_data=f'cancel_change_link_{idx}')]
                 ]
                 await query.message.edit_text(f"<b>⚠️ Change folder link?</b>\n\nThis will invalidate the old link and generate a new one.", reply_markup=InlineKeyboardMarkup(buttons))
+                await query.answer()
             return
         
         elif query.data.startswith("confirm_change_link_"):
@@ -4612,6 +4613,8 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                             payload["caption"] = payload.pop("text")
                             async with session.post(api_url, json=payload) as resp2:
                                 await resp2.json()
+                
+                await query.answer()
             return
         
         elif query.data.startswith("share_folder_"):
