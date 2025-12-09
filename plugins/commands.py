@@ -4363,14 +4363,13 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                 # Check if folder has password protection
                 is_protected = await db.is_folder_password_protected(query.from_user.id, folder_name)
                 
-                # Build raw buttons with Copy Link and Change Link
+                # Build raw buttons with desired layout
                 raw_buttons = [
-                    [{"text": "✏️ Rename", "callback_data": f"rename_folder_action_{idx}"}],
-                    [{"text": "📋 Copy Link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}],
-                    [{"text": "🔄 Change Link", "callback_data": f"change_folder_link_{idx}"}],
+                    # Row 1: Copy Link, Change Link
+                    [{"text": "📋 Copy Link", "copy_text": {"text": share_link}}, {"text": "♻️ Change Link", "callback_data": f"change_folder_link_{idx}"}],
                 ]
                 
-                # Password buttons - show View and Remove if protected, else show Set
+                # Row 2: Password buttons - show View and Remove if protected, else show Set
                 if is_protected:
                     raw_buttons.append([
                         {"text": "👁️ View Password", "callback_data": f"view_folder_password_{idx}"},
@@ -4379,7 +4378,13 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                 else:
                     raw_buttons.append([{"text": "🔐 Set Password", "callback_data": f"set_folder_password_{idx}"}])
                 
-                raw_buttons.append([{"text": "🗑️ Delete", "callback_data": f"delete_folder_action_{idx}"}])
+                # Row 3: Rename, Delete
+                raw_buttons.append([
+                    {"text": "✏️ Rename", "callback_data": f"rename_folder_action_{idx}"},
+                    {"text": "🗑️ Delete", "callback_data": f"delete_folder_action_{idx}"}
+                ])
+                
+                # Row 4: Back
                 raw_buttons.append([{"text": "⋞ ʙᴀᴄᴋ", "callback_data": f"browse_folder_{folder_encoded}"}])
                 
                 protection_status = "🔒 Password Protected" if is_protected else ""
@@ -4433,13 +4438,13 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                 folder_encoded = base64.urlsafe_b64encode(folder_name.encode("utf-8")).decode().strip("=")
                 is_protected = await db.is_folder_password_protected(query.from_user.id, folder_name)
                 
-                # Build updated buttons
+                # Build updated buttons with desired layout
                 raw_buttons = [
-                    [{"text": "✏️ Rename", "callback_data": f"rename_folder_action_{idx}"}],
-                    [{"text": "📋 Copy Link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}],
-                    [{"text": "🔄 Change Link", "callback_data": f"change_folder_link_{idx}"}],
+                    # Row 1: Copy Link, Change Link
+                    [{"text": "📋 Copy Link", "copy_text": {"text": share_link}}, {"text": "♻️ Change Link", "callback_data": f"change_folder_link_{idx}"}],
                 ]
                 
+                # Row 2: Password buttons - show View and Remove if protected, else show Set
                 if is_protected:
                     raw_buttons.append([
                         {"text": "👁️ View Password", "callback_data": f"view_folder_password_{idx}"},
@@ -4448,7 +4453,13 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                 else:
                     raw_buttons.append([{"text": "🔐 Set Password", "callback_data": f"set_folder_password_{idx}"}])
                 
-                raw_buttons.append([{"text": "🗑️ Delete", "callback_data": f"delete_folder_action_{idx}"}])
+                # Row 3: Rename, Delete
+                raw_buttons.append([
+                    {"text": "✏️ Rename", "callback_data": f"rename_folder_action_{idx}"},
+                    {"text": "🗑️ Delete", "callback_data": f"delete_folder_action_{idx}"}
+                ])
+                
+                # Row 4: Back
                 raw_buttons.append([{"text": "⋞ ʙᴀᴄᴋ", "callback_data": f"browse_folder_{folder_encoded}"}])
                 
                 protection_status = "🔒 Password Protected" if is_protected else ""
