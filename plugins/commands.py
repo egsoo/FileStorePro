@@ -4640,42 +4640,24 @@ async def handle_file_upload(client, message):
         encoded = base64.urlsafe_b64encode(string.encode("ascii")).decode().strip("=")
         link = f"https://t.me/{username}?start={encoded}"
         
+        # Create action buttons with Share containing copy/open options
+        buttons = [
+            [InlineKeyboardButton('🔗 Share', callback_data=f'file_share_{file_index}'), InlineKeyboardButton('📁 Change Folder', callback_data=f'change_file_folder_{file_index}')],
+            [InlineKeyboardButton('🛡️❌ Protect', callback_data=f'toggle_protected_{file_index}'), InlineKeyboardButton('❌ Delete', callback_data=f'delete_file_{file_index}')],
+            [InlineKeyboardButton('✖️ Close', callback_data=f'close_file_message')]
+        ]
+        
         # Build caption with file info
         caption = f"<b>✅ File saved!</b>\n\n"
         caption += f"<b>📄 {file_name}</b>\n"
         caption += f"<b>Type:</b> {file_type}"
         
-        # First copy the file without buttons
+        # Copy the file as reply with buttons and caption
         try:
-            reply_msg = await message.copy(chat_id=message.from_user.id, caption=caption, parse_mode=enums.ParseMode.HTML)
-            
-            # Now update with raw API buttons including copy_text
-            api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageReplyMarkup"
-            payload = {
-                "chat_id": message.from_user.id,
-                "message_id": reply_msg.id,
-                "reply_markup": {
-                    "inline_keyboard": [
-                        [{"text": "Copy Link", "copy_text": {"text": link}}, {"text": "📥 Open Link", "url": link}],
-                        [{"text": "📁 Change Folder", "callback_data": f"change_file_folder_{file_index}"}, {"text": "🛡️❌ Protect", "callback_data": f"toggle_protected_{file_index}"}],
-                        [{"text": "❌ Delete", "callback_data": f"delete_file_{file_index}"}, {"text": "✖️ Close", "callback_data": "close_file_message"}]
-                    ]
-                }
-            }
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(api_url, json=payload) as resp:
-                    result = await resp.json()
-                    if not result.get("ok"):
-                        logger.error(f"Error updating file buttons: {result.get('description')}")
+            reply_msg = await message.copy(chat_id=message.from_user.id, caption=caption, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
         except Exception as e:
             logger.error(f"Error copying file as reply: {e}")
-            # Fallback to text reply with standard buttons
-            buttons = [
-                [InlineKeyboardButton('🔗 Share', callback_data=f'file_share_{file_index}'), InlineKeyboardButton('📁 Change Folder', callback_data=f'change_file_folder_{file_index}')],
-                [InlineKeyboardButton('🛡️❌ Protect', callback_data=f'toggle_protected_{file_index}'), InlineKeyboardButton('❌ Delete', callback_data=f'delete_file_{file_index}')],
-                [InlineKeyboardButton('✖️ Close', callback_data=f'close_file_message')]
-            ]
+            # Fallback to text reply if copy fails
             reply_msg = await message.reply_text(caption, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
         
         # Delete original user file message
