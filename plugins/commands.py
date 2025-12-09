@@ -5067,9 +5067,26 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                         async with session.post(api_url, json=payload) as resp:
                             result = await resp.json()
                             if not result.get("ok"):
-                                logger.error(f"Share menu error: {result.get('description')}")
-                                await query.answer("Error updating share section", show_alert=True)
-                                return
+                                # Try editMessageCaption for media messages
+                                api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageCaption"
+                                payload = {
+                                    "chat_id": query.from_user.id,
+                                    "message_id": query.message.id,
+                                    "caption": f"<b>📤 Share File</b>\n\n<b>📄 {file_name}</b>\n\nShare this file with others using the link below:",
+                                    "parse_mode": "HTML",
+                                    "reply_markup": {
+                                        "inline_keyboard": [
+                                            [{"text": "Copy file link", "copy_text": {"text": link}}, {"text": "📥 Open Link", "url": link}],
+                                            [{"text": "⋞ Back", "callback_data": f"share_back_{file_idx}"}]
+                                        ]
+                                    }
+                                }
+                                async with session.post(api_url, json=payload) as resp2:
+                                    result2 = await resp2.json()
+                                    if not result2.get("ok"):
+                                        logger.error(f"Share menu error: {result2.get('description')}")
+                                        await query.answer("Error updating share section", show_alert=True)
+                                        return
                     
                     await query.answer()
             except Exception as e:
