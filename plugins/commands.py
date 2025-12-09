@@ -29,6 +29,8 @@ REPORT_BUG_MODE = {}  # Track users in report bug mode: {user_id: message_id}
 RESTORE_MODE = {}  # Track users entering restore token: {user_id: True}
 VERIFIED_FOLDER_ACCESS = {}  # Track verified password access: {"user_id_owner_id_folder": True}
 PASSWORD_ATTEMPTS = {}  # Track password attempt counts: {user_id_owner_id_folder: attempt_count}
+PASSWORD_PROMPT_MESSAGES = {}  # Track password prompt message IDs: {user_id: [msg_ids]}
+PASSWORD_RESPONSE_MESSAGES = {}  # Track password response message IDs: {user_id: [msg_ids]}
 
 def get_size(size):
     """Get size in readable format"""
@@ -580,7 +582,11 @@ async def start(client, message):
                 display_name = await db.get_folder_display_name(folder_name)
                 encoded_folder = base64.urlsafe_b64encode(folder_name.encode("utf-8")).decode().strip("=")
                 CAPTION_INPUT_MODE[message.from_user.id] = f"verify_folder_password_{owner_id}_{encoded_folder}"
-                return await message.reply_text(f"<b>🔐 This folder is password protected</b>\n\n📁 Folder: {display_name}\n\nPlease enter the password to access this folder:", parse_mode=enums.ParseMode.HTML)
+                prompt_msg = await message.reply_text(f"<b>🔐 This folder is password protected</b>\n\n📁 Folder: {display_name}\n\nPlease enter the password to access this folder:", parse_mode=enums.ParseMode.HTML)
+                if message.from_user.id not in PASSWORD_PROMPT_MESSAGES:
+                    PASSWORD_PROMPT_MESSAGES[message.from_user.id] = []
+                PASSWORD_PROMPT_MESSAGES[message.from_user.id].append(prompt_msg.id)
+                return
             
             # Get all files from this folder
             folder_files = await db.get_files_in_folder_recursive(owner_id, folder_name)
@@ -720,7 +726,11 @@ async def start(client, message):
                         # Ask for password
                         display_name = await db.get_folder_display_name(folder_name)
                         CAPTION_INPUT_MODE[message.from_user.id] = f"verify_folder_password_{owner_id}_{encoded_folder}"
-                        return await message.reply_text(f"<b>🔐 This folder is password protected</b>\n\n📁 Folder: {display_name}\n\nPlease enter the password to access this folder:", parse_mode=enums.ParseMode.HTML)
+                        prompt_msg = await message.reply_text(f"<b>🔐 This folder is password protected</b>\n\n📁 Folder: {display_name}\n\nPlease enter the password to access this folder:", parse_mode=enums.ParseMode.HTML)
+                        if message.from_user.id not in PASSWORD_PROMPT_MESSAGES:
+                            PASSWORD_PROMPT_MESSAGES[message.from_user.id] = []
+                        PASSWORD_PROMPT_MESSAGES[message.from_user.id].append(prompt_msg.id)
+                        return
                     
                     # Get all files from this folder
                     folder_files = await db.get_files_in_folder_recursive(owner_id, folder_name)
@@ -1664,6 +1674,23 @@ async def handle_user_input(client, message):
                         CAPTION_INPUT_MODE[message.from_user.id] = False
                         PASSWORD_ATTEMPTS.pop(attempt_key, None)
                         
+                        # Delete all prompt and response messages
+                        if message.from_user.id in PASSWORD_PROMPT_MESSAGES:
+                            for msg_id in PASSWORD_PROMPT_MESSAGES[message.from_user.id]:
+                                try:
+                                    await client.delete_messages(message.from_user.id, msg_id)
+                                except:
+                                    pass
+                            PASSWORD_PROMPT_MESSAGES.pop(message.from_user.id, None)
+                        
+                        if message.from_user.id in PASSWORD_RESPONSE_MESSAGES:
+                            for msg_id in PASSWORD_RESPONSE_MESSAGES[message.from_user.id]:
+                                try:
+                                    await client.delete_messages(message.from_user.id, msg_id)
+                                except:
+                                    pass
+                            PASSWORD_RESPONSE_MESSAGES.pop(message.from_user.id, None)
+                        
                         try:
                             await message.delete()
                         except:
@@ -1813,10 +1840,28 @@ async def handle_user_input(client, message):
                         if attempts >= 2:
                             CAPTION_INPUT_MODE[message.from_user.id] = False
                             PASSWORD_ATTEMPTS.pop(attempt_key, None)
-                            await client.send_message(message.from_user.id, "<b>❌ Maximum password attempts exceeded (2 tries).\n\nPlease click the folder link again to try again.</b>", parse_mode=enums.ParseMode.HTML)
+                            # Delete all prompt messages
+                            if message.from_user.id in PASSWORD_PROMPT_MESSAGES:
+                                for msg_id in PASSWORD_PROMPT_MESSAGES[message.from_user.id]:
+                                    try:
+                                        await client.delete_messages(message.from_user.id, msg_id)
+                                    except:
+                                        pass
+                                PASSWORD_PROMPT_MESSAGES.pop(message.from_user.id, None)
+                            if message.from_user.id in PASSWORD_RESPONSE_MESSAGES:
+                                for msg_id in PASSWORD_RESPONSE_MESSAGES[message.from_user.id]:
+                                    try:
+                                        await client.delete_messages(message.from_user.id, msg_id)
+                                    except:
+                                        pass
+                                PASSWORD_RESPONSE_MESSAGES.pop(message.from_user.id, None)
                         else:
                             remaining = 2 - attempts
-                            await client.send_message(message.from_user.id, f"<b>❌ Wrong password. {remaining} attempt{'s' if remaining > 1 else ''} left.\n\nTry again:</b>", parse_mode=enums.ParseMode.HTML)
+                            # Store response message ID to delete later
+                            resp_msg = await client.send_message(message.from_user.id, f"<b>❌ Wrong password. {remaining} attempt{'s' if remaining > 1 else ''} left.\n\nTry again:</b>", parse_mode=enums.ParseMode.HTML)
+                            if message.from_user.id not in PASSWORD_RESPONSE_MESSAGES:
+                                PASSWORD_RESPONSE_MESSAGES[message.from_user.id] = []
+                            PASSWORD_RESPONSE_MESSAGES[message.from_user.id].append(resp_msg.id)
                 except Exception as e:
                     logger.error(f"Error verifying folder password: {e}")
                     await message.reply_text(f"<b>❌ Error: {str(e)[:50]}</b>")
