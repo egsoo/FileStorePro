@@ -4551,7 +4551,7 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                             async with session.post(api_url, json=payload) as resp2:
                                 await resp2.json()
                 
-                await query.answer("✅ Link changed! Old link is now invalid.", show_alert=True)
+                await query.answer("✅ Link changed successfully.\n\nOld links are invalid now.", show_alert=True)
             return
         
         elif query.data.startswith("cancel_change_link_"):
