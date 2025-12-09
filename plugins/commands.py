@@ -3070,11 +3070,13 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                         folder_idx = i
                         break
                 
-                # 1. Get All Files and Edit buttons on TOP
+                # 1. Get All Files, Last 5 Files, and Edit buttons on TOP
                 action_row = []
+                encoded = base64.urlsafe_b64encode(current_path.encode("utf-8")).decode().strip("=")
                 if total_files_recursive:
-                    encoded = base64.urlsafe_b64encode(current_path.encode("utf-8")).decode().strip("=")
                     action_row.append(InlineKeyboardButton('📥 Get All Files', callback_data=f'getall_folder_{encoded}'))
+                if total_files_recursive:
+                    action_row.append(InlineKeyboardButton('📋 Last 5', callback_data=f'last5_folder_{encoded}'))
                 if folder_idx is not None:
                     action_row.append(InlineKeyboardButton('✏️ Edit', callback_data=f'edit_folder_{folder_idx}'))
                 if action_row:
@@ -3283,6 +3285,83 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                         BATCH_STOP_FLAGS.pop(query.from_user.id, None)
                         return
                     # Retry this file
+                    try:
+                        msg = await client.get_messages(LOG_CHANNEL, int(file_id))
+                        if msg and msg.media:
+                            await msg.copy(chat_id=query.from_user.id, protect_content=False)
+                            success_count += 1
+                    except Exception as retry_err:
+                        logger.error(f"Retry error: {retry_err}")
+                        error_count += 1
+                except Exception as e:
+                    logger.error(f"Error sending file: {e}")
+                    error_count += 1
+            
+            BATCH_STOP_FLAGS.pop(query.from_user.id, None)
+            result_text = f"<b>Completed!\n\nSent: {success_count} files"
+            if error_count > 0:
+                result_text += f"\nErrors: {error_count}"
+            result_text += "</b>"
+            await sts.edit(result_text)
+            return
+        
+        elif query.data.startswith("last5_folder_"):
+            # Get last 5 files from folder
+            encoded_path = query.data[13:]
+            try:
+                folder_path = base64.urlsafe_b64decode(encoded_path + "=" * (-len(encoded_path) % 4)).decode("utf-8")
+            except:
+                await query.answer("Error decoding folder path", show_alert=True)
+                return
+            
+            # Get all files recursively from folder
+            all_files = await db.get_files_in_folder_recursive(query.from_user.id, folder_path)
+            if not all_files:
+                await query.answer("No files in this folder", show_alert=True)
+                return
+            
+            # Get last 5 files
+            last_5_files = all_files[-5:] if len(all_files) >= 5 else all_files
+            
+            await query.answer(f"Sending {len(last_5_files)} files...", show_alert=False)
+            
+            # Set stop flag for this operation
+            BATCH_STOP_FLAGS[query.from_user.id] = False
+            
+            buttons = [[InlineKeyboardButton('Stop', callback_data=f'stop_batch_{query.from_user.id}')]]
+            sts = await query.message.reply_text(f"<b>Sending last {len(last_5_files)} files from '{folder_path}'...\n\nPlease wait...</b>", reply_markup=InlineKeyboardMarkup(buttons))
+            
+            success_count = 0
+            error_count = 0
+            
+            for file_obj in last_5_files:
+                # Check stop flag
+                if BATCH_STOP_FLAGS.get(query.from_user.id, False):
+                    await sts.edit(f"<b>Stopped! Sent {success_count} files before stopping.</b>")
+                    BATCH_STOP_FLAGS.pop(query.from_user.id, None)
+                    return
+                
+                try:
+                    file_id = file_obj.get('file_id')
+                    if not file_id:
+                        continue
+                    
+                    msg = await client.get_messages(LOG_CHANNEL, int(file_id))
+                    if msg and msg.media:
+                        await msg.copy(chat_id=query.from_user.id, protect_content=False)
+                        success_count += 1
+                        await asyncio.sleep(0.5)
+                except FloodWait as e:
+                    logger.info(f"FloodWait: sleeping for {e.value} seconds")
+                    try:
+                        await sts.edit(f"<b>FloodWait - waiting {e.value}s...\n\nSent: {success_count}/{len(last_5_files)}</b>", reply_markup=InlineKeyboardMarkup(buttons))
+                    except:
+                        pass
+                    await asyncio.sleep(e.value)
+                    if BATCH_STOP_FLAGS.get(query.from_user.id, False):
+                        await sts.edit(f"<b>Stopped! Sent {success_count} files before stopping.</b>")
+                        BATCH_STOP_FLAGS.pop(query.from_user.id, None)
+                        return
                     try:
                         msg = await client.get_messages(LOG_CHANNEL, int(file_id))
                         if msg and msg.media:
