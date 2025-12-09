@@ -4813,34 +4813,83 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
             return
         
         elif query.data.startswith("cancel_delfolder_"):
-            # Cancel delete - back to folder view
+            # Cancel delete - back to edit folder menu
             idx = int(query.data.replace("cancel_delfolder_", ""))
             folders = await db.get_folders(query.from_user.id)
             if 0 <= idx < len(folders):
                 f = folders[idx]
                 folder_name = f.get('name', str(f)) if isinstance(f, dict) else str(f)
-                user = await db.col.find_one({'id': int(query.from_user.id)})
-                all_files = user.get('stored_files', []) if user else []
-                folder_files = [(f_idx, file_f) for f_idx, file_f in enumerate(all_files) if file_f.get('folder') == folder_name]
+                display_name = await db.get_folder_display_name(folder_name)
+                
+                # Get or generate token-based share link
+                token = await db.get_folder_token(query.from_user.id, folder_name)
+                if not token:
+                    token = await db.generate_folder_token(query.from_user.id, folder_name)
                 
                 username = (await client.get_me()).username
-                text = f"<b>📁 {folder_name} (Page 1)\n\n</b>"
-                if not folder_files:
-                    text += "❌ No files"
-                else:
-                    for display_count, (file_idx, file_obj) in enumerate(folder_files[:10], 1):
-                        file_name = file_obj.get('file_name', 'Unknown')
-                        string = f'file_{file_idx}'
-                        encoded = base64.urlsafe_b64encode(string.encode("ascii")).decode().strip("=")
-                        link = f"https://t.me/{username}?start={encoded}"
-                        text += f"{display_count}. <a href='{link}'>{file_name}</a>\n\n"
+                share_link = f"https://t.me/{username}?start=folder_{token}"
                 
-                buttons = [[
-                    InlineKeyboardButton('✏️ Rename', callback_data=f'rename_folder_action_{idx}'),
-                    InlineKeyboardButton('🗑️ Delete', callback_data=f'delete_folder_action_{idx}')
-                ]]
-                buttons.append([InlineKeyboardButton('⋞ ʙᴀᴄᴋ', callback_data='files_by_folder')])
-                await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
+                # Back button path
+                folder_encoded = base64.urlsafe_b64encode(folder_name.encode("utf-8")).decode().strip("=")
+                
+                # Check if folder has password protection
+                is_protected = await db.is_folder_password_protected(query.from_user.id, folder_name)
+                
+                # Build raw buttons with desired layout
+                raw_buttons = [
+                    # Row 1: Copy folder link, Change Link
+                    [{"text": "Copy folder link", "copy_text": {"text": share_link}}, {"text": "♻️ Change Link", "callback_data": f"change_folder_link_{idx}"}],
+                ]
+                
+                # Row 2: Password buttons - show View and Remove if protected, else show Set
+                if is_protected:
+                    raw_buttons.append([
+                        {"text": "👁️ View Password", "callback_data": f"view_folder_password_{idx}"},
+                        {"text": "🗑️ Remove Password", "callback_data": f"confirm_remove_password_{idx}"}
+                    ])
+                else:
+                    raw_buttons.append([{"text": "🔐 Set Password", "callback_data": f"set_folder_password_{idx}"}])
+                
+                # Row 3: Rename, Delete
+                raw_buttons.append([
+                    {"text": "✏️ Rename", "callback_data": f"rename_folder_action_{idx}"},
+                    {"text": "🗑️ Delete", "callback_data": f"delete_folder_action_{idx}"}
+                ])
+                
+                # Row 4: Back
+                raw_buttons.append([{"text": "⋞ ʙᴀᴄᴋ", "callback_data": f"browse_folder_{folder_encoded}"}])
+                
+                protection_status = "🔒 Password Protected" if is_protected else ""
+                edit_text = f"<b>✏️ Edit Folder: {display_name}</b>\n{protection_status}\n\nSelect an option:"
+                
+                # Try editMessageText first, then editMessageCaption
+                api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+                payload = {
+                    "chat_id": query.from_user.id,
+                    "message_id": query.message.id,
+                    "text": edit_text,
+                    "parse_mode": "HTML",
+                    "reply_markup": {"inline_keyboard": raw_buttons}
+                }
+                
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(api_url, json=payload) as resp:
+                        result = await resp.json()
+                        if not result.get("ok"):
+                            # Try editMessageCaption if text edit fails
+                            api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageCaption"
+                            payload = {
+                                "chat_id": query.from_user.id,
+                                "message_id": query.message.id,
+                                "caption": edit_text,
+                                "parse_mode": "HTML",
+                                "reply_markup": {"inline_keyboard": raw_buttons}
+                            }
+                            async with session.post(api_url, json=payload) as resp2:
+                                result2 = await resp2.json()
+                                if not result2.get("ok"):
+                                    logger.error(f"Edit folder error: {result2.get('description')}")
+                
                 await query.answer()
             return
         
