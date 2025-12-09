@@ -28,6 +28,7 @@ FOLDER_PROMPT_MSG = {}  # Track folder creation prompt message IDs: {user_id: me
 REPORT_BUG_MODE = {}  # Track users in report bug mode: {user_id: message_id}
 RESTORE_MODE = {}  # Track users entering restore token: {user_id: True}
 VERIFIED_FOLDER_ACCESS = {}  # Track verified password access: {"user_id_owner_id_folder": True}
+PASSWORD_ATTEMPTS = {}  # Track password attempt counts: {user_id_owner_id_folder: attempt_count}
 
 def get_size(size):
     """Get size in readable format"""
@@ -1652,10 +1653,16 @@ async def handle_user_input(client, message):
                     password = message.text.strip()
                     folder_name = base64.urlsafe_b64decode(encoded_folder + "=" * (-len(encoded_folder) % 4)).decode("utf-8")
                     
+                    # Track password attempts (max 2)
+                    attempt_key = f"{message.from_user.id}_{owner_id}_{folder_name}"
+                    attempts = PASSWORD_ATTEMPTS.get(attempt_key, 0) + 1
+                    PASSWORD_ATTEMPTS[attempt_key] = attempts
+                    
                     is_valid = await db.verify_folder_password(owner_id, folder_name, password)
                     
                     if is_valid:
                         CAPTION_INPUT_MODE[message.from_user.id] = False
+                        PASSWORD_ATTEMPTS.pop(attempt_key, None)
                         
                         try:
                             await message.delete()
@@ -1687,11 +1694,19 @@ async def handle_user_input(client, message):
                         
                         await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons) if buttons else None, parse_mode=enums.ParseMode.HTML)
                     else:
-                        await message.reply_text("<b>❌ Wrong password. Try again:</b>")
+                        # Check if attempts exceeded
+                        if attempts >= 2:
+                            CAPTION_INPUT_MODE[message.from_user.id] = False
+                            PASSWORD_ATTEMPTS.pop(attempt_key, None)
+                            await message.reply_text("<b>❌ Maximum password attempts exceeded (2 tries).\n\nPlease click the folder link again to try again.</b>")
+                        else:
+                            remaining = 2 - attempts
+                            await message.reply_text(f"<b>❌ Wrong password. {remaining} attempt{'s' if remaining > 1 else ''} left.\n\nTry again:</b>")
                 except Exception as e:
                     logger.error(f"Error verifying folder password: {e}")
                     await message.reply_text(f"<b>❌ Error: {str(e)[:50]}</b>")
                     CAPTION_INPUT_MODE[message.from_user.id] = False
+                    PASSWORD_ATTEMPTS.pop(attempt_key, None)
                 return
         
         # Second: Check if message contains t.me link
