@@ -1803,14 +1803,20 @@ async def handle_user_input(client, message):
                                 if not result.get("ok"):
                                     logger.error(f"Send message error: {result.get('description')}")
                     else:
+                        # Delete the password input message
+                        try:
+                            await message.delete()
+                        except:
+                            pass
+                        
                         # Check if attempts exceeded
                         if attempts >= 2:
                             CAPTION_INPUT_MODE[message.from_user.id] = False
                             PASSWORD_ATTEMPTS.pop(attempt_key, None)
-                            await message.reply_text("<b>❌ Maximum password attempts exceeded (2 tries).\n\nPlease click the folder link again to try again.</b>")
+                            await client.send_message(message.from_user.id, "<b>❌ Maximum password attempts exceeded (2 tries).\n\nPlease click the folder link again to try again.</b>", parse_mode=enums.ParseMode.HTML)
                         else:
                             remaining = 2 - attempts
-                            await message.reply_text(f"<b>❌ Wrong password. {remaining} attempt{'s' if remaining > 1 else ''} left.\n\nTry again:</b>")
+                            await client.send_message(message.from_user.id, f"<b>❌ Wrong password. {remaining} attempt{'s' if remaining > 1 else ''} left.\n\nTry again:</b>", parse_mode=enums.ParseMode.HTML)
                 except Exception as e:
                     logger.error(f"Error verifying folder password: {e}")
                     await message.reply_text(f"<b>❌ Error: {str(e)[:50]}</b>")
