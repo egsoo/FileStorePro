@@ -668,5 +668,66 @@ class Database:
                 if isinstance(f, dict) and f.get('password'):
                     protected.append(folder_name)
         return protected
+    
+    async def generate_folder_token(self, user_id, folder_name):
+        """Generate a unique token for folder access (no owner ID in token)"""
+        import secrets
+        import datetime
+        
+        user = await self._get_user_cached(user_id)
+        if not user:
+            return None
+        
+        folders = user.get('folders', [])
+        token = secrets.token_urlsafe(16)
+        
+        for folder in folders:
+            fname = folder.get('name', str(folder)) if isinstance(folder, dict) else str(folder)
+            if fname == folder_name:
+                if isinstance(folder, dict):
+                    folder['access_token'] = token
+                    folder['token_created'] = datetime.datetime.now()
+                break
+        
+        await self.col.update_one({'id': int(user_id)}, {'$set': {'folders': folders}})
+        self._cache.invalidate(user_id)
+        return token
+    
+    async def get_folder_token(self, user_id, folder_name):
+        """Get existing access token for a folder"""
+        user = await self._get_user_cached(user_id)
+        if not user:
+            return None
+        
+        folders = user.get('folders', [])
+        for folder in folders:
+            fname = folder.get('name', str(folder)) if isinstance(folder, dict) else str(folder)
+            if fname == folder_name:
+                if isinstance(folder, dict):
+                    return folder.get('access_token')
+        return None
+    
+    async def change_folder_token(self, user_id, folder_name):
+        """Change/regenerate the folder access token (invalidates old link)"""
+        return await self.generate_folder_token(user_id, folder_name)
+    
+    async def get_folder_by_token(self, token):
+        """Find folder and owner by access token. Returns (user_id, folder_name) or (None, None)"""
+        user = await self.col.find_one({'folders.access_token': token})
+        if not user:
+            return None, None
+        
+        folders = user.get('folders', [])
+        for folder in folders:
+            if isinstance(folder, dict) and folder.get('access_token') == token:
+                return user['id'], folder.get('name')
+        return None, None
+    
+    async def validate_folder_token(self, token):
+        """Validate a folder access token and return folder info"""
+        owner_id, folder_name = await self.get_folder_by_token(token)
+        if owner_id is None:
+            return None
+        return {'owner_id': owner_id, 'folder_name': folder_name}
 
 db = Database(DB_URI, DB_NAME)

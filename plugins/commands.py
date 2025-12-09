@@ -557,6 +557,136 @@ async def start(client, message):
     file_index = None
     
     try:
+        # Check for new token-based folder links (format: folder_TOKEN, not base64 encoded)
+        if data.startswith("folder_"):
+            token = data[7:]  # Remove "folder_" prefix to get the token
+            
+            # Validate token and get folder info
+            folder_info = await db.validate_folder_token(token)
+            
+            if not folder_info:
+                return await message.reply_text("<b>❌ Invalid or expired folder link!</b>")
+            
+            owner_id = folder_info['owner_id']
+            folder_name = folder_info['folder_name']
+            
+            # Check if folder is password protected
+            is_protected = await db.is_folder_password_protected(owner_id, folder_name)
+            access_key = f"{message.from_user.id}_{owner_id}_{folder_name}"
+            
+            if is_protected and access_key not in VERIFIED_FOLDER_ACCESS:
+                # Ask for password
+                display_name = await db.get_folder_display_name(folder_name)
+                encoded_folder = base64.urlsafe_b64encode(folder_name.encode("utf-8")).decode().strip("=")
+                CAPTION_INPUT_MODE[message.from_user.id] = f"verify_folder_password_{owner_id}_{encoded_folder}"
+                return await message.reply_text(f"<b>🔐 This folder is password protected</b>\n\n📁 Folder: {display_name}\n\nPlease enter the password to access this folder:", parse_mode=enums.ParseMode.HTML)
+            
+            # Get all files from this folder
+            folder_files = await db.get_files_in_folder_recursive(owner_id, folder_name)
+            
+            if not folder_files:
+                return await message.reply_text("<b>❌ This folder is empty or doesn't exist!</b>")
+            
+            # Show browsable folder UI
+            display_name = await db.get_folder_display_name(folder_name)
+            files_in_folder = await db.get_files_by_folder(owner_id, folder=folder_name)
+            total_files_recursive = len(folder_files)
+            
+            text = f"<b>📁 Shared Folder: {display_name}\n📍 Path: {folder_name}\n\n</b>"
+            text += f"📄 Files here: {len(files_in_folder)}\n📂 Total (incl. subfolders): {total_files_recursive}"
+            
+            buttons = []
+            username = (await client.get_me()).username
+            share_link = f"https://t.me/{username}?start=folder_{token}"
+            
+            # Get All Files button
+            encoded_path = base64.urlsafe_b64encode(folder_name.encode("utf-8")).decode().strip("=")
+            buttons.append([InlineKeyboardButton('📥 Get All Files', callback_data=f'getall_shared_{owner_id}_{encoded_path}')])
+            
+            # Get subfolders
+            subfolders = await db.get_subfolders(owner_id, folder_name)
+            row = []
+            for f in subfolders:
+                sub_folder_name = f.get('name', str(f)) if isinstance(f, dict) else str(f)
+                sub_display = await db.get_folder_display_name(sub_folder_name)
+                sub_encoded = base64.urlsafe_b64encode(sub_folder_name.encode("utf-8")).decode().strip("=")
+                sub_access_key = f"{message.from_user.id}_{owner_id}_{sub_folder_name}"
+                is_sub_protected = await db.is_folder_password_protected(owner_id, sub_folder_name)
+                
+                if is_sub_protected and sub_access_key not in VERIFIED_FOLDER_ACCESS:
+                    row.append(InlineKeyboardButton(f'🔒 {sub_display}', callback_data=f'shared_folder_{owner_id}_{sub_encoded}'))
+                else:
+                    files_in_sub = await db.get_files_in_folder_recursive(owner_id, sub_folder_name)
+                    row.append(InlineKeyboardButton(f'📁 {sub_display} ({len(files_in_sub)})', callback_data=f'shared_folder_{owner_id}_{sub_encoded}'))
+                
+                if len(row) == 2:
+                    buttons.append(row)
+                    row = []
+            if row:
+                buttons.append(row)
+            
+            # List files with pagination
+            if files_in_folder:
+                items_per_page = 10
+                page = 0
+                total_pages = max(1, (len(files_in_folder) + items_per_page - 1) // items_per_page)
+                start_idx = page * items_per_page
+                end_idx = start_idx + items_per_page
+                display_files = files_in_folder[start_idx:end_idx]
+                
+                text += f"\n\n<b>Files (Page {page + 1}/{total_pages}):</b>\n"
+                for file_obj in display_files:
+                    file_name = file_obj.get('file_name', 'Unknown')
+                    if len(file_name) > 40:
+                        file_name = file_name[:37] + "..."
+                    file_id = file_obj.get('file_id')
+                    if file_id:
+                        file_link_data = f"sharedfile_{owner_id}_{file_id}"
+                        encoded_file_link = base64.urlsafe_b64encode(file_link_data.encode("ascii")).decode().strip("=")
+                        link = f"https://t.me/{username}?start={encoded_file_link}"
+                        text += f"• <a href='{link}'>{file_name}</a>\n"
+                    else:
+                        text += f"• {file_name}\n"
+                
+                if total_pages > 1:
+                    buttons.append([InlineKeyboardButton('Next ➡️', callback_data=f'sharedp:1:{owner_id}:{encoded_path}')])
+            
+            # Back button
+            if '/' in folder_name:
+                parent_path = '/'.join(folder_name.split('/')[:-1])
+                parent_encoded = base64.urlsafe_b64encode(parent_path.encode("utf-8")).decode().strip("=")
+                buttons.append([InlineKeyboardButton('⬅️ Back', callback_data=f'shared_folder_{owner_id}_{parent_encoded}')])
+            
+            # Convert to raw API format
+            raw_buttons = [[{"text": "📋 Copy Link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}]]
+            
+            for row in buttons:
+                raw_row = []
+                for btn in row:
+                    if btn.callback_data:
+                        raw_row.append({"text": btn.text, "callback_data": btn.callback_data})
+                    elif btn.url:
+                        raw_row.append({"text": btn.text, "url": btn.url})
+                if raw_row:
+                    raw_buttons.append(raw_row)
+            
+            api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+            payload = {
+                "chat_id": message.from_user.id,
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+                "reply_markup": {"inline_keyboard": raw_buttons}
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(api_url, json=payload) as resp:
+                    result = await resp.json()
+                    if not result.get("ok"):
+                        logger.error(f"Send message error: {result.get('description')}")
+            
+            return
+        
         # Check if it's a BATCH link (old format)
         if data.startswith("BATCH-"):
             # Remove BATCH- prefix and decode
@@ -3912,12 +4042,13 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                 folder_name = f.get('name', str(f)) if isinstance(f, dict) else str(f)
                 display_name = await db.get_folder_display_name(folder_name)
                 
-                # Generate share link for Copy Link button
-                encoded_folder = base64.urlsafe_b64encode(folder_name.encode("utf-8")).decode().strip("=")
-                link_data = f"folder_{query.from_user.id}_{encoded_folder}"
-                encoded_link = base64.urlsafe_b64encode(link_data.encode("ascii")).decode().strip("=")
+                # Get or generate token-based share link (no owner ID in link)
+                token = await db.get_folder_token(query.from_user.id, folder_name)
+                if not token:
+                    token = await db.generate_folder_token(query.from_user.id, folder_name)
+                
                 username = (await client.get_me()).username
-                share_link = f"https://t.me/{username}?start={encoded_link}"
+                share_link = f"https://t.me/{username}?start=folder_{token}"
                 
                 # Back button path
                 folder_encoded = base64.urlsafe_b64encode(folder_name.encode("utf-8")).decode().strip("=")
@@ -3925,10 +4056,11 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                 # Check if folder has password protection
                 is_protected = await db.is_folder_password_protected(query.from_user.id, folder_name)
                 
-                # Build raw buttons with Copy Link
+                # Build raw buttons with Copy Link and Change Link
                 raw_buttons = [
                     [{"text": "✏️ Rename", "callback_data": f"rename_folder_action_{idx}"}],
-                    [{"text": "Copy Link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}],
+                    [{"text": "📋 Copy Link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}],
+                    [{"text": "🔄 Change Link", "callback_data": f"change_folder_link_{idx}"}],
                 ]
                 
                 # Password buttons - show View and Remove if protected, else show Set
@@ -3977,25 +4109,85 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                 await query.answer()
             return
         
+        elif query.data.startswith("change_folder_link_"):
+            # Change folder access link (regenerate token, invalidate old link)
+            idx = int(query.data.split("_")[-1])
+            folders = await db.get_folders(query.from_user.id)
+            if 0 <= idx < len(folders):
+                f = folders[idx]
+                folder_name = f.get('name', str(f)) if isinstance(f, dict) else str(f)
+                display_name = await db.get_folder_display_name(folder_name)
+                
+                # Generate new token (invalidates old one)
+                new_token = await db.change_folder_token(query.from_user.id, folder_name)
+                username = (await client.get_me()).username
+                share_link = f"https://t.me/{username}?start=folder_{new_token}"
+                
+                folder_encoded = base64.urlsafe_b64encode(folder_name.encode("utf-8")).decode().strip("=")
+                is_protected = await db.is_folder_password_protected(query.from_user.id, folder_name)
+                
+                # Build updated buttons
+                raw_buttons = [
+                    [{"text": "✏️ Rename", "callback_data": f"rename_folder_action_{idx}"}],
+                    [{"text": "📋 Copy Link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}],
+                    [{"text": "🔄 Change Link", "callback_data": f"change_folder_link_{idx}"}],
+                ]
+                
+                if is_protected:
+                    raw_buttons.append([
+                        {"text": "👁️ View Password", "callback_data": f"view_folder_password_{idx}"},
+                        {"text": "🗑️ Remove Password", "callback_data": f"confirm_remove_password_{idx}"}
+                    ])
+                else:
+                    raw_buttons.append([{"text": "🔐 Set Password", "callback_data": f"set_folder_password_{idx}"}])
+                
+                raw_buttons.append([{"text": "🗑️ Delete", "callback_data": f"delete_folder_action_{idx}"}])
+                raw_buttons.append([{"text": "⋞ ʙᴀᴄᴋ", "callback_data": f"browse_folder_{folder_encoded}"}])
+                
+                protection_status = "🔒 Password Protected" if is_protected else ""
+                edit_text = f"<b>✏️ Edit Folder: {display_name}</b>\n{protection_status}\n\n✅ Link changed! Previous link is now invalid.\n\nSelect an option:"
+                
+                api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+                payload = {
+                    "chat_id": query.from_user.id,
+                    "message_id": query.message.id,
+                    "text": edit_text,
+                    "parse_mode": "HTML",
+                    "reply_markup": {"inline_keyboard": raw_buttons}
+                }
+                
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(api_url, json=payload) as resp:
+                        result = await resp.json()
+                        if not result.get("ok"):
+                            api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageCaption"
+                            payload["caption"] = payload.pop("text")
+                            async with session.post(api_url, json=payload) as resp2:
+                                await resp2.json()
+                
+                await query.answer("✅ Link changed! Old link is now invalid.", show_alert=True)
+            return
+        
         elif query.data.startswith("share_folder_"):
-            # Show folder share link with Copy Link button
+            # Show folder share link with Copy Link button (using token-based links)
             idx = int(query.data.split("_")[-1])
             folders = await db.get_folders(query.from_user.id)
             if 0 <= idx < len(folders):
                 f = folders[idx]
                 folder_name = f.get('name', str(f)) if isinstance(f, dict) else str(f)
                 
-                # Generate share link: folder_{user_id}_{encoded_folder_name}
-                encoded_folder = base64.urlsafe_b64encode(folder_name.encode("utf-8")).decode().strip("=")
-                link_data = f"folder_{query.from_user.id}_{encoded_folder}"
-                encoded_link = base64.urlsafe_b64encode(link_data.encode("ascii")).decode().strip("=")
+                # Get or generate token-based share link
+                token = await db.get_folder_token(query.from_user.id, folder_name)
+                if not token:
+                    token = await db.generate_folder_token(query.from_user.id, folder_name)
                 
                 username = (await client.get_me()).username
-                share_link = f"https://t.me/{username}?start={encoded_link}"
+                share_link = f"https://t.me/{username}?start=folder_{token}"
                 
                 reply_markup = {
                     "inline_keyboard": [
-                        [{"text": "Copy Link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}],
+                        [{"text": "📋 Copy Link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}],
+                        [{"text": "🔄 Change Link", "callback_data": f"change_folder_link_{idx}"}],
                         [{"text": "⋞ ʙᴀᴄᴋ", "callback_data": f"edit_folder_{idx}"}]
                     ]
                 }
@@ -4099,14 +4291,18 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                 
                 folder_encoded = base64.urlsafe_b64encode(folder_name.encode("utf-8")).decode().strip("=")
                 
+                # Get or generate token-based share link (no owner ID in link)
+                token = await db.get_folder_token(query.from_user.id, folder_name)
+                if not token:
+                    token = await db.generate_folder_token(query.from_user.id, folder_name)
+                
                 username = (await client.get_me()).username
-                link_data = f"folder_{query.from_user.id}_{folder_encoded}"
-                encoded_link = base64.urlsafe_b64encode(link_data.encode("ascii")).decode().strip("=")
-                share_link = f"https://t.me/{username}?start={encoded_link}"
+                share_link = f"https://t.me/{username}?start=folder_{token}"
                 
                 raw_buttons = [
                     [{"text": "✏️ Rename", "callback_data": f"rename_folder_action_{idx}"}],
-                    [{"text": "Copy Link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}],
+                    [{"text": "📋 Copy Link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}],
+                    [{"text": "🔄 Change Link", "callback_data": f"change_folder_link_{idx}"}],
                     [{"text": "🔐 Set Password", "callback_data": f"set_folder_password_{idx}"}],
                     [{"text": "🗑️ Delete", "callback_data": f"delete_folder_action_{idx}"}],
                     [{"text": "⋞ ʙᴀᴄᴋ", "callback_data": f"browse_folder_{folder_encoded}"}]
