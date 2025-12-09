@@ -658,7 +658,8 @@ async def start(client, message):
                 buttons.append([InlineKeyboardButton('⬅️ Back', callback_data=f'shared_folder_{owner_id}_{parent_encoded}')])
             
             # Convert to raw API format
-            raw_buttons = [[{"text": "📋 Copy Link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}]]
+            encoded_path = base64.urlsafe_b64encode(folder_name.encode("utf-8")).decode().strip("=")
+            raw_buttons = [[{"text": "📋 Copy Link", "copy_text": {"text": share_link}}, {"text": "📋 Last 5", "callback_data": f"last5_shared_{owner_id}_{encoded_path}"}]]
             
             for row in buttons:
                 raw_row = []
@@ -821,9 +822,10 @@ async def start(client, message):
                     raw_buttons = []
                     
                     # Add copy link buttons at the top using raw API with copy_text
+                    encoded_path = base64.urlsafe_b64encode(folder_name.encode("utf-8")).decode().strip("=")
                     raw_buttons.append([
                         {"text": "Copy Link", "copy_text": {"text": share_link}}, 
-                        {"text": "📥 Open Link", "url": share_link}
+                        {"text": "📋 Last 5", "callback_data": f"last5_shared_{owner_id}_{encoded_path}"}
                     ])
                     
                     # Convert Pyrogram buttons to raw API format
