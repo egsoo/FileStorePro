@@ -3538,10 +3538,11 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
             # Convert buttons to raw API format and add copy link buttons
             raw_buttons = []
             
-            # Add copy link buttons at the top using raw API with copy_text
+            # Add copy link and get last 5 buttons at the top
+            last5_callback = f'last5_shared_{owner_id}_{encoded_path}'
             raw_buttons.append([
                 {"text": "Copy Link", "copy_text": {"text": share_link}}, 
-                {"text": "📥 Open Link", "url": share_link}
+                {"text": "📋 Last 5", "callback_data": last5_callback}
             ])
             
             # Convert Pyrogram buttons to raw API format
@@ -3715,6 +3716,106 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
             await sts.edit(result_text)
             return
         
+        elif query.data.startswith("last5_shared_"):
+            # Get last 5 files from shared folder
+            remaining = query.data[13:]  # Remove "last5_shared_"
+            parts = remaining.split("_", 1)
+            if len(parts) < 2:
+                await query.answer("Invalid folder data", show_alert=True)
+                return
+            
+            try:
+                owner_id = int(parts[0])
+                encoded_path = parts[1]
+                folder_path = base64.urlsafe_b64decode(encoded_path + "=" * (-len(encoded_path) % 4)).decode("utf-8")
+            except:
+                await query.answer("Error decoding folder path", show_alert=True)
+                return
+            
+            # Get all files recursively from folder
+            all_files = await db.get_files_in_folder_recursive(owner_id, folder_path)
+            
+            # Filter out files from password-protected subfolders that haven't been verified
+            protected_subfolders = await db.get_all_protected_subfolders(owner_id, folder_path)
+            files = []
+            for file_obj in all_files:
+                file_folder = file_obj.get('folder')
+                is_in_protected = False
+                for pf in protected_subfolders:
+                    sub_access_key = f"{query.from_user.id}_{owner_id}_{pf}"
+                    if file_folder == pf or (file_folder and file_folder.startswith(f"{pf}/")):
+                        if sub_access_key not in VERIFIED_FOLDER_ACCESS:
+                            is_in_protected = True
+                            break
+                if not is_in_protected:
+                    files.append(file_obj)
+            
+            # Get last 5 files
+            last_5_files = files[-5:] if len(files) >= 5 else files
+            
+            if not last_5_files:
+                await query.answer("No accessible files in this folder", show_alert=True)
+                return
+            
+            await query.answer(f"Sending {len(last_5_files)} files...", show_alert=False)
+            
+            # Set stop flag for this operation
+            BATCH_STOP_FLAGS[query.from_user.id] = False
+            
+            buttons = [[InlineKeyboardButton('⏹️ Stop', callback_data=f'stop_batch_{query.from_user.id}')]]
+            display_name = await db.get_folder_display_name(folder_path)
+            sts = await query.message.reply_text(f"<b>📁 Sending last {len(last_5_files)} files from '{display_name}'...\n\nPlease wait...</b>", reply_markup=InlineKeyboardMarkup(buttons))
+            
+            success_count = 0
+            error_count = 0
+            
+            for file_obj in last_5_files:
+                if BATCH_STOP_FLAGS.get(query.from_user.id, False):
+                    await sts.edit(f"<b>⏹️ Stopped! Sent {success_count} files before stopping.</b>")
+                    BATCH_STOP_FLAGS.pop(query.from_user.id, None)
+                    return
+                
+                try:
+                    file_id = file_obj.get('file_id')
+                    if not file_id:
+                        continue
+                    
+                    msg = await client.get_messages(LOG_CHANNEL, int(file_id))
+                    if msg and msg.media:
+                        await msg.copy(chat_id=query.from_user.id, protect_content=False)
+                        success_count += 1
+                        await asyncio.sleep(0.5)
+                except FloodWait as e:
+                    logger.info(f"FloodWait: sleeping for {e.value} seconds")
+                    try:
+                        await sts.edit(f"<b>⏳ FloodWait - waiting {e.value}s...\n\nSent: {success_count}/{len(last_5_files)}</b>", reply_markup=InlineKeyboardMarkup(buttons))
+                    except:
+                        pass
+                    await asyncio.sleep(e.value)
+                    if BATCH_STOP_FLAGS.get(query.from_user.id, False):
+                        await sts.edit(f"<b>⏹️ Stopped! Sent {success_count} files before stopping.</b>")
+                        BATCH_STOP_FLAGS.pop(query.from_user.id, None)
+                        return
+                    try:
+                        msg = await client.get_messages(LOG_CHANNEL, int(file_id))
+                        if msg and msg.media:
+                            await msg.copy(chat_id=query.from_user.id, protect_content=False)
+                            success_count += 1
+                    except Exception as retry_err:
+                        logger.error(f"Retry error: {retry_err}")
+                        error_count += 1
+                except Exception as e:
+                    logger.error(f"Error sending file: {e}")
+                    error_count += 1
+            
+            BATCH_STOP_FLAGS.pop(query.from_user.id, None)
+            result_text = f"<b>✅ Completed!\n\n📁 Folder: {display_name}\n📄 Sent: {success_count} files"
+            if error_count > 0:
+                result_text += f"\n❌ Errors: {error_count}"
+            result_text += "</b>"
+            await sts.edit(result_text)
+            return
+        
         elif query.data.startswith("share_back_folder_"):
             # Go back to shared folder view
             try:
@@ -3814,10 +3915,11 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                     # Convert buttons to raw API format and add copy link buttons
                     raw_buttons = []
                     
-                    # Add copy link buttons at the top using raw API with copy_text
+                    # Add copy link and last 5 buttons at the top
+                    last5_callback = f'last5_shared_{owner_id}_{encoded_path_btn}'
                     raw_buttons.append([
                         {"text": "Copy Link", "copy_text": {"text": share_link}}, 
-                        {"text": "📥 Open Link", "url": share_link}
+                        {"text": "📋 Last 5", "callback_data": last5_callback}
                     ])
                     
                     # Convert Pyrogram buttons to raw API format
