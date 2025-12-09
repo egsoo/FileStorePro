@@ -1093,56 +1093,23 @@ async def start(client, message):
                 
                 # Create action buttons only if file index is found AND valid
                 reply_markup = None
-                raw_buttons = None
-                share_link = None
                 is_protected = False
                 if file_idx is not None and isinstance(file_idx, int) and 0 <= file_idx < len(stored_files):
                     is_protected = stored_files[file_idx].get('protected', False)
-                    username = (await client.get_me()).username
-                    string = f'file_{file_idx}'
-                    encoded = base64.urlsafe_b64encode(string.encode("ascii")).decode().strip("=")
-                    share_link = f"https://t.me/{username}?start={encoded}"
-                    
                     protect_btn = '🛡️✅ Protected' if is_protected else '🛡️❌ Protect'
-                    # Temporary buttons for initial send (will be replaced with raw API)
+                    
+                    # Same UI as when coming back from change folder section
                     buttons = [
-                        [InlineKeyboardButton('📁 Change Folder', callback_data=f'change_file_folder_{file_idx}')],
+                        [InlineKeyboardButton('🔗 Share', callback_data=f'file_share_{file_idx}'), InlineKeyboardButton('📁 Change Folder', callback_data=f'change_file_folder_{file_idx}')],
                         [InlineKeyboardButton(protect_btn, callback_data=f'toggle_protected_{file_idx}'), InlineKeyboardButton('❌ Delete', callback_data=f'delete_file_{file_idx}')],
                         [InlineKeyboardButton('✖️ Close', callback_data=f'close_file_message')]
                     ]
                     reply_markup = InlineKeyboardMarkup(buttons)
-                    
-                    # Raw buttons with Copy folder link for immediate update
-                    raw_buttons = [
-                        [{"text": "Copy folder link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}],
-                        [{"text": "📁 Change Folder", "callback_data": f"change_file_folder_{file_idx}"}],
-                        [{"text": protect_btn, "callback_data": f"toggle_protected_{file_idx}"}, {"text": "❌ Delete", "callback_data": f"delete_file_{file_idx}"}],
-                        [{"text": "✖️ Close", "callback_data": "close_file_message"}]
-                    ]
-                
-                # Helper function to update buttons with Copy folder link using raw API
-                async def update_with_copy_link(chat_id, message_id, raw_btns):
-                    if raw_btns:
-                        try:
-                            api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageReplyMarkup"
-                            payload = {
-                                "chat_id": chat_id,
-                                "message_id": message_id,
-                                "reply_markup": {"inline_keyboard": raw_btns}
-                            }
-                            async with aiohttp.ClientSession() as session:
-                                async with session.post(api_url, json=payload) as resp:
-                                    await resp.json()
-                        except Exception:
-                            pass
                 
                 # Apply delivery mode settings
                 if delivery_mode == 'pm':
                     # PM only mode
                     del_msg = await msg.copy(chat_id=message.from_user.id, caption=f_caption if f_caption else None, reply_markup=reply_markup, protect_content=is_protected)
-                    # Update with Copy folder link button
-                    if del_msg and raw_buttons:
-                        await update_with_copy_link(message.from_user.id, del_msg.id, raw_buttons)
                 
                 elif delivery_mode == 'channel':
                     # Channel only mode - no PM
@@ -1159,17 +1126,11 @@ async def start(client, message):
                     # Send to both PM and destinations
                     if not destinations:
                         del_msg = await msg.copy(chat_id=message.from_user.id, caption=f_caption if f_caption else None, reply_markup=reply_markup, protect_content=is_protected)
-                        # Update with Copy folder link button
-                        if del_msg and raw_buttons:
-                            await update_with_copy_link(message.from_user.id, del_msg.id, raw_buttons)
                     else:
                         enabled_dests = [d for d in destinations if d.get('enabled', True)]
                         
                         # Send to PM with action buttons
                         del_msg = await msg.copy(chat_id=message.from_user.id, caption=f_caption if f_caption else None, reply_markup=reply_markup, protect_content=is_protected)
-                        # Update with Copy folder link button
-                        if del_msg and raw_buttons:
-                            await update_with_copy_link(message.from_user.id, del_msg.id, raw_buttons)
                         
                         # Send to enabled destinations with filtered caption
                         for dest in enabled_dests:
