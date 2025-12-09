@@ -5048,15 +5048,29 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                     encoded = base64.urlsafe_b64encode(string.encode("ascii")).decode().strip("=")
                     link = f"https://t.me/{username}?start={encoded}"
                     
-                    # Create buttons for share section
-                    buttons = [
-                        [InlineKeyboardButton('Copy file link', callback_data=f'copy_file_link_{file_idx}'), InlineKeyboardButton('📥 Open Link', url=link)],
-                        [InlineKeyboardButton('⋞ Back', callback_data=f'share_back_{file_idx}')]
-                    ]
+                    # Use raw API to support copy_text feature
+                    api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+                    payload = {
+                        "chat_id": query.from_user.id,
+                        "message_id": query.message.id,
+                        "text": f"<b>📤 Share File</b>\n\n<b>📄 {file_name}</b>\n\nShare this file with others using the link below:",
+                        "parse_mode": "HTML",
+                        "reply_markup": {
+                            "inline_keyboard": [
+                                [{"text": "Copy file link", "copy_text": {"text": link}}, {"text": "📥 Open Link", "url": link}],
+                                [{"text": "⋞ Back", "callback_data": f"share_back_{file_idx}"}]
+                            ]
+                        }
+                    }
                     
-                    # Edit message with share section
-                    caption = f"<b>📤 Share File</b>\n\n<b>📄 {file_name}</b>\n\nShare this file with others using the link below:"
-                    await query.message.edit_text(caption, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=enums.ParseMode.HTML)
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(api_url, json=payload) as resp:
+                            result = await resp.json()
+                            if not result.get("ok"):
+                                logger.error(f"Share menu error: {result.get('description')}")
+                                await query.answer("Error updating share section", show_alert=True)
+                                return
+                    
                     await query.answer()
             except Exception as e:
                 logger.error(f"Share menu error: {e}")
@@ -5087,24 +5101,6 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
             except Exception as e:
                 logger.error(f"Share back error: {e}")
                 await query.answer("Error", show_alert=True)
-            return
-        
-        elif query.data.startswith("copy_file_link_"):
-            # Copy file link to clipboard
-            try:
-                file_idx = int(query.data.split("_")[-1])
-                user = await db.col.find_one({'id': int(query.from_user.id)})
-                stored_files = user.get('stored_files', []) if user else []
-                
-                if 0 <= file_idx < len(stored_files):
-                    username = (await client.get_me()).username
-                    string = f'file_{file_idx}'
-                    encoded = base64.urlsafe_b64encode(string.encode("ascii")).decode().strip("=")
-                    link = f"https://t.me/{username}?start={encoded}"
-                    await query.answer(f"✅ Link copied: {link}", show_alert=False)
-            except Exception as e:
-                logger.error(f"Copy link error: {e}")
-                await query.answer("Error copying link", show_alert=True)
             return
         
         elif query.data.startswith("delete_file_"):
