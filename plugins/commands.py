@@ -660,7 +660,7 @@ async def start(client, message):
             
             # Convert to raw API format
             encoded_path = base64.urlsafe_b64encode(folder_name.encode("utf-8")).decode().strip("=")
-            raw_buttons = [[{"text": "📋 Copy Link", "copy_text": {"text": share_link}}, {"text": "📋 Last 5", "callback_data": f"last5_shared_{owner_id}_{encoded_path}"}]]
+            raw_buttons = [[{"text": "Copy folder link", "copy_text": {"text": share_link}}, {"text": "📋 Last 5", "callback_data": f"last5_shared_{owner_id}_{encoded_path}"}]]
             
             for row in buttons:
                 raw_row = []
@@ -740,7 +740,7 @@ async def start(client, message):
                     
                     buttons = []
                     
-                    # Generate share link for Copy Link button
+                    # Generate share link for Copy folder link button
                     username = (await client.get_me()).username
                     link_data = f"folder_{owner_id}_{encoded_folder}"
                     encoded_link = base64.urlsafe_b64encode(link_data.encode("ascii")).decode().strip("=")
@@ -825,7 +825,7 @@ async def start(client, message):
                     # Add copy link buttons at the top using raw API with copy_text
                     encoded_path = base64.urlsafe_b64encode(folder_name.encode("utf-8")).decode().strip("=")
                     raw_buttons.append([
-                        {"text": "Copy Link", "copy_text": {"text": share_link}}, 
+                        {"text": "Copy folder link", "copy_text": {"text": share_link}}, 
                         {"text": "📋 Last 5", "callback_data": f"last5_shared_{owner_id}_{encoded_path}"}
                     ])
                     
@@ -1102,15 +1102,15 @@ async def start(client, message):
                     ]
                     reply_markup = InlineKeyboardMarkup(buttons)
                     
-                    # Raw buttons with Copy Link for immediate update
+                    # Raw buttons with Copy folder link for immediate update
                     raw_buttons = [
-                        [{"text": "Copy Link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}],
+                        [{"text": "Copy folder link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}],
                         [{"text": "📁 Change Folder", "callback_data": f"change_file_folder_{file_idx}"}],
                         [{"text": protect_btn, "callback_data": f"toggle_protected_{file_idx}"}, {"text": "❌ Delete", "callback_data": f"delete_file_{file_idx}"}],
                         [{"text": "✖️ Close", "callback_data": "close_file_message"}]
                     ]
                 
-                # Helper function to update buttons with Copy Link using raw API
+                # Helper function to update buttons with Copy folder link using raw API
                 async def update_with_copy_link(chat_id, message_id, raw_btns):
                     if raw_btns:
                         try:
@@ -1130,7 +1130,7 @@ async def start(client, message):
                 if delivery_mode == 'pm':
                     # PM only mode
                     del_msg = await msg.copy(chat_id=message.from_user.id, caption=f_caption if f_caption else None, reply_markup=reply_markup, protect_content=is_protected)
-                    # Update with Copy Link button
+                    # Update with Copy folder link button
                     if del_msg and raw_buttons:
                         await update_with_copy_link(message.from_user.id, del_msg.id, raw_buttons)
                 
@@ -1149,7 +1149,7 @@ async def start(client, message):
                     # Send to both PM and destinations
                     if not destinations:
                         del_msg = await msg.copy(chat_id=message.from_user.id, caption=f_caption if f_caption else None, reply_markup=reply_markup, protect_content=is_protected)
-                        # Update with Copy Link button
+                        # Update with Copy folder link button
                         if del_msg and raw_buttons:
                             await update_with_copy_link(message.from_user.id, del_msg.id, raw_buttons)
                     else:
@@ -1157,7 +1157,7 @@ async def start(client, message):
                         
                         # Send to PM with action buttons
                         del_msg = await msg.copy(chat_id=message.from_user.id, caption=f_caption if f_caption else None, reply_markup=reply_markup, protect_content=is_protected)
-                        # Update with Copy Link button
+                        # Update with Copy folder link button
                         if del_msg and raw_buttons:
                             await update_with_copy_link(message.from_user.id, del_msg.id, raw_buttons)
                         
@@ -1690,7 +1690,7 @@ async def handle_user_input(client, message):
                         
                         buttons = []
                         
-                        # Generate share link for Copy Link button
+                        # Generate share link for Copy folder link button
                         username = (await client.get_me()).username
                         link_data = f"folder_{owner_id}_{encoded_folder}"
                         encoded_link = base64.urlsafe_b64encode(link_data.encode("ascii")).decode().strip("=")
@@ -1770,7 +1770,7 @@ async def handle_user_input(client, message):
                         
                         # Add copy link buttons at the top using raw API with copy_text
                         raw_buttons.append([
-                            {"text": "Copy Link", "copy_text": {"text": share_link}}, 
+                            {"text": "Copy folder link", "copy_text": {"text": share_link}}, 
                             {"text": "📋 Last 5", "callback_data": f"last5_shared_{owner_id}_{encoded_path}"}
                         ])
                         
@@ -3583,7 +3583,7 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
             
             buttons = []
             
-            # Generate share link for Copy Link button
+            # Generate share link for Copy folder link button
             username = (await client.get_me()).username
             encoded_path = base64.urlsafe_b64encode(current_path.encode("utf-8")).decode().strip("=")
             link_data = f"folder_{owner_id}_{encoded_path}"
@@ -3667,7 +3667,7 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
             # Add copy link and get last 5 buttons at the top
             last5_callback = f'last5_shared_{owner_id}_{encoded_path}'
             raw_buttons.append([
-                {"text": "Copy Link", "copy_text": {"text": share_link}}, 
+                {"text": "Copy folder link", "copy_text": {"text": share_link}}, 
                 {"text": "📋 Last 5", "callback_data": last5_callback}
             ])
             
@@ -4044,7 +4044,7 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                     # Add copy link and last 5 buttons at the top
                     last5_callback = f'last5_shared_{owner_id}_{encoded_path_btn}'
                     raw_buttons.append([
-                        {"text": "Copy Link", "copy_text": {"text": share_link}}, 
+                        {"text": "Copy folder link", "copy_text": {"text": share_link}}, 
                         {"text": "📋 Last 5", "callback_data": last5_callback}
                     ])
                     
@@ -4365,8 +4365,8 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                 
                 # Build raw buttons with desired layout
                 raw_buttons = [
-                    # Row 1: Copy Link, Change Link
-                    [{"text": "📋 Copy Link", "copy_text": {"text": share_link}}, {"text": "♻️ Change Link", "callback_data": f"change_folder_link_{idx}"}],
+                    # Row 1: Copy folder link, Change Link
+                    [{"text": "Copy folder link", "copy_text": {"text": share_link}}, {"text": "♻️ Change Link", "callback_data": f"change_folder_link_{idx}"}],
                 ]
                 
                 # Row 2: Password buttons - show View and Remove if protected, else show Set
@@ -4440,8 +4440,8 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                 
                 # Build updated buttons with desired layout
                 raw_buttons = [
-                    # Row 1: Copy Link, Change Link
-                    [{"text": "📋 Copy Link", "copy_text": {"text": share_link}}, {"text": "♻️ Change Link", "callback_data": f"change_folder_link_{idx}"}],
+                    # Row 1: Copy folder link, Change Link
+                    [{"text": "Copy folder link", "copy_text": {"text": share_link}}, {"text": "♻️ Change Link", "callback_data": f"change_folder_link_{idx}"}],
                 ]
                 
                 # Row 2: Password buttons - show View and Remove if protected, else show Set
@@ -4487,7 +4487,7 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
             return
         
         elif query.data.startswith("share_folder_"):
-            # Show folder share link with Copy Link button (using token-based links)
+            # Show folder share link with Copy folder link button (using token-based links)
             idx = int(query.data.split("_")[-1])
             folders = await db.get_folders(query.from_user.id)
             if 0 <= idx < len(folders):
@@ -4504,7 +4504,7 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                 
                 reply_markup = {
                     "inline_keyboard": [
-                        [{"text": "📋 Copy Link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}],
+                        [{"text": "Copy folder link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}],
                         [{"text": "🔄 Change Link", "callback_data": f"change_folder_link_{idx}"}],
                         [{"text": "⋞ ʙᴀᴄᴋ", "callback_data": f"edit_folder_{idx}"}]
                     ]
@@ -4619,7 +4619,7 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                 
                 raw_buttons = [
                     [{"text": "✏️ Rename", "callback_data": f"rename_folder_action_{idx}"}],
-                    [{"text": "📋 Copy Link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}],
+                    [{"text": "Copy folder link", "copy_text": {"text": share_link}}, {"text": "📥 Open Link", "url": share_link}],
                     [{"text": "🔄 Change Link", "callback_data": f"change_folder_link_{idx}"}],
                     [{"text": "🔐 Set Password", "callback_data": f"set_folder_password_{idx}"}],
                     [{"text": "🗑️ Delete", "callback_data": f"delete_folder_action_{idx}"}],
@@ -4909,7 +4909,7 @@ You can generate a new token anytime from the Backup & Restore menu.</b>"""
                     "message_id": query.message.id,
                     "reply_markup": {
                         "inline_keyboard": [
-                            [{"text": "Copy Link", "copy_text": {"text": link}}, {"text": "📥 Open Link", "url": link}],
+                            [{"text": "Copy folder link", "copy_text": {"text": link}}, {"text": "📥 Open Link", "url": link}],
                             [{"text": "⋞ ʙᴀᴄᴋ", "callback_data": f"share_back_{file_idx}"}]
                         ]
                     }
