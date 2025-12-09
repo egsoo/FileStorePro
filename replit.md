@@ -68,6 +68,22 @@ The bot includes a backup/restore system for users who want to migrate their fil
 - **Self-Restore Prevention**: Cannot restore to the same account that created the token
 - **Token Management**: Users can generate, change, or delete their tokens
 
+## Token-Based Folder Links
+
+Folders can be shared via secure token-based links that don't expose the owner's user ID:
+
+- **Link Format**: `https://t.me/botname?start=folder_TOKEN`
+- **Token Generation**: Each folder gets a unique random token when first shared
+- **Change Link**: Users can regenerate the token to invalidate all previous links
+- **Password Protection**: Folders can optionally have password protection
+- **Token Security**: Tokens are stored per-folder and can be changed anytime
+
+### How It Works
+1. When a user clicks "Edit" on a folder, they see "Copy Link" and "Change Link" buttons
+2. "Copy Link" copies the current token-based share link
+3. "Change Link" generates a new token, making the old link invalid
+4. Recipients access the folder by clicking the link (password required if set)
+
 ## Tech Stack
 
 - Python 3.11
