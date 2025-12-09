@@ -1671,28 +1671,137 @@ async def handle_user_input(client, message):
                         
                         VERIFIED_FOLDER_ACCESS[f"{message.from_user.id}_{owner_id}_{folder_name}"] = True
                         
-                        folder_files = await db.get_files_by_folder(owner_id, folder=folder_name)
-                        username = (await client.get_me()).username
+                        # Get all files from this folder (including subfolders)
+                        all_folder_files = await db.get_files_in_folder_recursive(owner_id, folder_name)
+                        
+                        if not all_folder_files:
+                            await message.reply_text("<b>❌ This folder is empty!</b>")
+                            return
+                        
+                        # Show browsable folder UI
                         display_name = await db.get_folder_display_name(folder_name)
                         
-                        text = f"<b>📁 {display_name}\n\n</b>"
-                        if not folder_files:
-                            text += "No files in this folder"
-                        else:
-                            for i, f in enumerate(folder_files[:10]):
-                                file_id = f.get('file_id')
-                                file_name = f.get('file_name', 'Unknown')
-                                string = f'getfile_{owner_id}_{file_id}'
-                                encoded = base64.urlsafe_b64encode(string.encode("ascii")).decode().strip("=")
-                                link = f"https://t.me/{username}?start={encoded}"
-                                text += f"{i+1}. <a href='{link}'>{file_name}</a>\n\n"
+                        # Get files in current folder (not subfolders)
+                        files_in_folder = await db.get_files_by_folder(owner_id, folder=folder_name)
+                        total_files_recursive = len(all_folder_files)
+                        
+                        text = f"<b>📁 Shared Folder: {display_name}\n📍 Path: {folder_name}\n\n</b>"
+                        text += f"📄 Files here: {len(files_in_folder)}\n📂 Total (incl. subfolders): {total_files_recursive}"
                         
                         buttons = []
-                        if folder_files:
-                            encoded_folder_btn = base64.urlsafe_b64encode(folder_name.encode("utf-8")).decode().strip("=")
-                            buttons.append([InlineKeyboardButton('📥 Get All Files', callback_data=f'getall_shared_{owner_id}_{encoded_folder_btn}')])
                         
-                        await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons) if buttons else None, parse_mode=enums.ParseMode.HTML)
+                        # Generate share link for Copy Link button
+                        username = (await client.get_me()).username
+                        link_data = f"folder_{owner_id}_{encoded_folder}"
+                        encoded_link = base64.urlsafe_b64encode(link_data.encode("ascii")).decode().strip("=")
+                        share_link = f"https://t.me/{username}?start={encoded_link}"
+                        
+                        # 1. Get All Files button
+                        action_row = []
+                        encoded_path = base64.urlsafe_b64encode(folder_name.encode("utf-8")).decode().strip("=")
+                        action_row.append(InlineKeyboardButton('📥 Get All Files', callback_data=f'getall_shared_{owner_id}_{encoded_path}'))
+                        buttons.append(action_row)
+                        
+                        # 2. Get subfolders
+                        subfolders = await db.get_subfolders(owner_id, folder_name)
+                        
+                        # List subfolders - 2 per row
+                        row = []
+                        for f in subfolders:
+                            sub_folder_name = f.get('name', str(f)) if isinstance(f, dict) else str(f)
+                            sub_display = await db.get_folder_display_name(sub_folder_name)
+                            sub_encoded = base64.urlsafe_b64encode(sub_folder_name.encode("utf-8")).decode().strip("=")
+                            
+                            # Check if subfolder has its own password
+                            sub_access_key = f"{message.from_user.id}_{owner_id}_{sub_folder_name}"
+                            is_sub_protected = await db.is_folder_password_protected(owner_id, sub_folder_name)
+                            
+                            if is_sub_protected and sub_access_key not in VERIFIED_FOLDER_ACCESS:
+                                # Show lock icon, hide file count for protected subfolders
+                                row.append(InlineKeyboardButton(f'🔒 {sub_display}', callback_data=f'shared_folder_{owner_id}_{sub_encoded}'))
+                            else:
+                                files_in_sub = await db.get_files_in_folder_recursive(owner_id, sub_folder_name)
+                                row.append(InlineKeyboardButton(f'📁 {sub_display} ({len(files_in_sub)})', callback_data=f'shared_folder_{owner_id}_{sub_encoded}'))
+                            
+                            if len(row) == 2:
+                                buttons.append(row)
+                                row = []
+                        if row:
+                            buttons.append(row)
+                        
+                        # 3. List files with pagination
+                        if files_in_folder:
+                            items_per_page = 10
+                            page = 0
+                            total_pages = max(1, (len(files_in_folder) + items_per_page - 1) // items_per_page)
+                            start_idx = page * items_per_page
+                            end_idx = start_idx + items_per_page
+                            display_files = files_in_folder[start_idx:end_idx]
+                            
+                            text += f"\n\n<b>Files (Page {page + 1}/{total_pages}):</b>\n"
+                            for file_obj in display_files:
+                                file_name = file_obj.get('file_name', 'Unknown')
+                                if len(file_name) > 40:
+                                    file_name = file_name[:37] + "..."
+                                file_id = file_obj.get('file_id')
+                                if file_id:
+                                    # Create shared file link
+                                    file_link_data = f"sharedfile_{owner_id}_{file_id}"
+                                    encoded_file_link = base64.urlsafe_b64encode(file_link_data.encode("ascii")).decode().strip("=")
+                                    link = f"https://t.me/{username}?start={encoded_file_link}"
+                                    text += f"• <a href='{link}'>{file_name}</a>\n"
+                                else:
+                                    text += f"• {file_name}\n"
+                            
+                            # Add pagination buttons if needed
+                            if total_pages > 1:
+                                nav_row = []
+                                nav_row.append(InlineKeyboardButton('Next ➡️', callback_data=f'sharedp:1:{owner_id}:{encoded_path}'))
+                                buttons.append(nav_row)
+                        
+                        # Back button - go to parent folder if exists
+                        if '/' in folder_name:
+                            parent_path = '/'.join(folder_name.split('/')[:-1])
+                            parent_encoded = base64.urlsafe_b64encode(parent_path.encode("utf-8")).decode().strip("=")
+                            buttons.append([InlineKeyboardButton('⬅️ Back', callback_data=f'shared_folder_{owner_id}_{parent_encoded}')])
+                        
+                        # Convert buttons to raw API format and add copy link buttons
+                        raw_buttons = []
+                        
+                        # Add copy link buttons at the top using raw API with copy_text
+                        raw_buttons.append([
+                            {"text": "Copy Link", "copy_text": {"text": share_link}}, 
+                            {"text": "📋 Last 5", "callback_data": f"last5_shared_{owner_id}_{encoded_path}"}
+                        ])
+                        
+                        # Convert Pyrogram buttons to raw API format
+                        for row in buttons:
+                            raw_row = []
+                            for btn in row:
+                                if btn.callback_data:
+                                    raw_row.append({"text": btn.text, "callback_data": btn.callback_data})
+                                elif btn.url:
+                                    raw_row.append({"text": btn.text, "url": btn.url})
+                            if raw_row:
+                                raw_buttons.append(raw_row)
+                        
+                        # Use raw API to send message with copy link functionality
+                        api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                        payload = {
+                            "chat_id": message.from_user.id,
+                            "text": text,
+                            "parse_mode": "HTML",
+                            "disable_web_page_preview": True,
+                            "reply_markup": {
+                                "inline_keyboard": raw_buttons
+                            }
+                        }
+                        
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post(api_url, json=payload) as resp:
+                                result = await resp.json()
+                                if not result.get("ok"):
+                                    logger.error(f"Send message error: {result.get('description')}")
                     else:
                         # Check if attempts exceeded
                         if attempts >= 2:
